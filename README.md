@@ -57,7 +57,69 @@
 3. 确保 PHP-FPM 可正常解析 PHP 文件。
 4. 确保 Nginx / OpenResty 已正确配置 URL 重写，支持 `/pay/...` 路由访问。
 
-### 三、数据库配置
+### 三、伪静态 / URL 重写
+
+本项目依赖伪静态规则来支持以下访问形式：
+
+- `/xxx.html` -> 首页模板页
+- `/doc/xxx.html` -> 文档页
+- `/pay/...` -> 支付分发入口
+- `/api/...` -> 新版 API 路由入口
+
+#### Nginx / OpenResty
+
+当前站点实际使用的重写规则可参考：
+
+- `/opt/1panel/www/sites/api.233233.cc/rewrite/api.233233.cc.conf`
+
+推荐配置如下：
+
+```nginx
+location / {
+    try_files $uri $uri/ @rewrite;
+}
+
+location @rewrite {
+    rewrite ^/(.[a-zA-Z0-9\-\_]+).html$ /index.php?mod=$1 last;
+    rewrite ^/pay/(.*)$ /pay.php?s=$1 last;
+    rewrite ^/api/(.*)$ /api.php?s=$1 last;
+    rewrite ^/doc/(.[a-zA-Z0-9\-\_]+).html$ /index.php?doc=$1 last;
+    rewrite ^ /index.php last;
+}
+```
+
+#### Apache
+
+Apache 需确保已启用：
+
+- `mod_rewrite`
+
+可使用等价规则：
+
+```apache
+<IfModule mod_rewrite.c>
+RewriteEngine On
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+
+RewriteRule ^([A-Za-z0-9\-_]+)\.html$ index.php?mod=$1 [L,QSA]
+RewriteRule ^pay/(.*)$ pay.php?s=$1 [L,QSA]
+RewriteRule ^api/(.*)$ api.php?s=$1 [L,QSA]
+RewriteRule ^doc/([A-Za-z0-9\-_]+)\.html$ index.php?doc=$1 [L,QSA]
+RewriteRule ^ index.php [L,QSA]
+</IfModule>
+```
+
+#### 注意事项
+
+- 如果伪静态未生效，最直接的表现通常是：
+  - `/pay/...` 无法访问
+  - `/api/...` 新接口无法访问
+  - `*.html` 模板页 / 文档页无法按预期打开
+- 在 1Panel 环境下，优先核对站点的“网站设置 -> 伪静态”是否已加载上述规则。
+
+### 三点五、数据库配置
 
 1. 复制或创建根目录 `config.php`。
 2. 按实际环境填写数据库连接信息：
