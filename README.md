@@ -44,18 +44,7 @@
 
 ## 伪静态
 
-本项目依赖伪静态支持以下路由：
-
-- `/xxx.html`
-- `/doc/xxx.html`
-- `/pay/...`
-- `/api/...`
-
 ### Nginx / OpenResty
-
-可参考当前站点规则：
-
-- `/opt/1panel/www/sites/api.233233.cc/rewrite/api.233233.cc.conf`
 
 推荐配置：
 
