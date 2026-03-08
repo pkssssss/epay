@@ -1,4 +1,6 @@
 **/cert/
+**/vendor/**/CHANGELOG*
+**/vendor/**/README*
 *.cer
 *.crt
 *.csr

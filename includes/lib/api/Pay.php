@@ -5,6 +5,95 @@ use Exception;
 
 class Pay
 {
+
+    private static function fail($apiMode, $message, $code = -1){
+        if($apiMode){
+            echojsonmsg($message, $code);
+        }else{
+            sysmsg($message);
+        }
+    }
+
+    private static function loadMerchant(array $queryArr, $apiMode = false){
+        global $DB, $conf;
+        $pid = intval($queryArr['pid']);
+        if(empty($pid)) self::fail($apiMode, '商户ID不能为空', -4);
+        $userrow = $DB->getRow("SELECT `uid`,`gid`,`key`,`money`,`mode`,`pay`,`cert`,`status`,`channelinfo`,`qq`,`ordername`,`keytype`,`publickey` FROM `pre_user` WHERE `uid`=:uid LIMIT 1", [':uid'=>$pid]);
+        if(!$userrow) self::fail($apiMode, '商户不存在！', -3);
+        try{
+            \lib\ApiHelper::api_verify($userrow, $queryArr);
+        }catch(Exception $e){
+            self::fail($apiMode, $e->getMessage(), -3);
+        }
+        if($userrow['status']==0 || $userrow['pay']==0) self::fail($apiMode, '商户已被封禁，无法支付！');
+        if($userrow['pay']==2 && $conf['user_review']==1) self::fail($apiMode, '商户未通过审核，无法支付！');
+        return [$pid, $userrow];
+    }
+
+    private static function validateOrderRequest($pid, $userrow, array $params, $apiMode = false){
+        global $conf, $DB;
+        $type = $params['type'];
+        $out_trade_no = $params['out_trade_no'];
+        $notify_url = $params['notify_url'];
+        $return_url = $params['return_url'];
+        $name = $params['name'];
+        $money = $params['money'];
+        $clientip = $params['clientip'];
+        $method = $params['method'];
+        $sub_openid = $params['sub_openid'];
+        $sub_appid = $params['sub_appid'];
+        $auth_code = $params['auth_code'];
+
+        if(empty($out_trade_no)) self::fail($apiMode, '订单号(out_trade_no)不能为空');
+        if(empty($notify_url)) self::fail($apiMode, '通知地址(notify_url)不能为空');
+        if(!$apiMode && empty($return_url)) self::fail($apiMode, '回调地址(return_url)不能为空');
+        if(empty($name)) self::fail($apiMode, '商品名称(name)不能为空');
+        if(empty($money)) self::fail($apiMode, '金额(money)不能为空');
+        if($apiMode && empty($type) && $method != 'scan') self::fail($apiMode, '支付方式(type)不能为空');
+        if($apiMode && empty($clientip)) self::fail($apiMode, '用户IP地址(clientip)不能为空');
+        if($money<=0 || !is_numeric($money) || !preg_match('/^[0-9.]+$/', $money)) self::fail($apiMode, '金额不合法');
+        if($conf['pay_maxmoney']>0 && $money>$conf['pay_maxmoney']) self::fail($apiMode, '最大支付金额是'.$conf['pay_maxmoney'].'元');
+        if($conf['pay_minmoney']>0 && $money<$conf['pay_minmoney']) self::fail($apiMode, '最小支付金额是'.$conf['pay_minmoney'].'元');
+        if(!preg_match('/^[a-zA-Z0-9.\_\-|]+$/',$out_trade_no)) self::fail($apiMode, '订单号(out_trade_no)格式不正确');
+        $notifyError = null;
+        if(!validateNotifyUrl($notify_url, $notifyError)) self::fail($apiMode, $notifyError);
+        if($apiMode && $method == 'jsapi' && empty($sub_openid)) self::fail($apiMode, 'jsapi支付时参数(sub_openid)不能为空');
+        if($apiMode && $method == 'jsapi' && $type=='wxpay' && empty($sub_appid)) self::fail($apiMode, 'jsapi支付时参数(sub_appid)不能为空');
+        if($apiMode && $method == 'scan' && empty($auth_code)) self::fail($apiMode, '付款码支付时授权码(auth_code)不能为空');
+        if($apiMode && $method == 'scan' && empty($type)){
+            $type = getScanPayType($auth_code);
+            if($type == 'unknown') self::fail($apiMode, '未知的付款码类型');
+        }
+
+        $domain = getdomain($notify_url);
+        if($conf['cert_force']==1 && $userrow['cert']==0) self::fail($apiMode, '当前商户未完成实名认证，无法收款');
+        if($conf['forceqq']==1 && empty($userrow['qq'])) self::fail($apiMode, '当前商户未填写联系QQ，无法收款');
+        if($conf['pay_domain_forbid']==1){
+            if(!$DB->getRow("SELECT * FROM pre_domain WHERE uid=:uid AND (domain=:domain OR domain=:domain2) AND status=1 LIMIT 1", [':uid'=>$pid, ':domain'=>get_host($notify_url), ':domain2'=>'*.'.get_main_host($notify_url)])){
+                self::fail($apiMode, '该域名不可发起支付，原因：域名没过白，请前往支付平台授权支付域名');
+            }
+        }
+        if(!empty($conf['blockname'])){
+            $block_name = explode('|',$conf['blockname']);
+            foreach($block_name as $rows){
+                if(!empty($rows) && strpos($name,$rows)!==false){
+                    $DB->exec("INSERT INTO `pre_risk` (`uid`, `url`, `content`, `date`) VALUES (:uid, :domain, :rows, NOW())", [':uid'=>$pid,':domain'=>$domain,':rows'=>$rows]);
+                    self::fail($apiMode, $conf['blockalert']?$conf['blockalert']:'该商品禁止出售');
+                }
+            }
+        }
+        $blackip = $DB->find('blacklist', '*', ['type'=>1, 'content'=>$clientip], null, 1);
+        if($blackip) self::fail($apiMode, '系统异常无法完成付款');
+        if($conf['pay_iplimit'] > 0){
+            $ipcount = $DB->getColumn("SELECT count(*) FROM pre_order WHERE `ip`=:ip AND `date`=:date AND status>0", [':ip'=>$clientip, ':date'=>date('Y-m-d')]);
+            if($ipcount >= $conf['pay_iplimit']) self::fail($apiMode, '你今天已无法再发起支付，请明天再试');
+        }
+        if(strlen($name)>127) $name = mb_strcut($name, 0, 127, 'utf-8');
+        $params['type'] = $type;
+        $params['name'] = $name;
+        $params['domain'] = $domain;
+        return $params;
+    }
     public static function submit()
     {
         global $conf, $DB, $clientip, $order, $userrow;
@@ -16,82 +105,35 @@ class Pay
         }else{
             exit('你还未配置支付接口商户！');
         }
-        
-        $pid=intval($queryArr['pid']);
-        if(empty($pid))sysmsg('商户ID不能为空');
-        $userrow=$DB->getRow("SELECT `uid`,`gid`,`key`,`money`,`mode`,`pay`,`cert`,`status`,`channelinfo`,`qq`,`ordername`,`keytype`,`publickey` FROM `pre_user` WHERE `uid`=:uid LIMIT 1", [':uid'=>$pid]);
-        if(!$userrow)sysmsg('商户不存在！');
+
         if(isset($queryArr['__defend'])){
             $defend_result = $queryArr['__defend'];
             unset($queryArr['__defend']);
         }
 
-        try{
-            \lib\ApiHelper::api_verify($userrow, $queryArr);
-        }catch(Exception $e){
-            sysmsg($e->getMessage());
-        }
-
-        if($userrow['status']==0 || $userrow['pay']==0)sysmsg('商户已被封禁，无法支付！');
-
-        if($userrow['pay']==2 && $conf['user_review']==1)sysmsg('商户未通过审核，无法支付！');
-
-        $type=daddslashes($queryArr['type']);
-        $out_trade_no=daddslashes($queryArr['out_trade_no']);
-        $notify_url=htmlspecialchars(daddslashes($queryArr['notify_url']));
-        $return_url=htmlspecialchars(daddslashes($queryArr['return_url']));
-        $name=htmlspecialchars(daddslashes($queryArr['name']));
-        $money=daddslashes($queryArr['money']);
+        list($pid, $userrow) = self::loadMerchant($queryArr, false);
+        $params = self::validateOrderRequest($pid, $userrow, [
+            'type' => daddslashes($queryArr['type']),
+            'out_trade_no' => daddslashes($queryArr['out_trade_no']),
+            'notify_url' => htmlspecialchars(daddslashes($queryArr['notify_url'])),
+            'return_url' => htmlspecialchars(daddslashes($queryArr['return_url'])),
+            'name' => htmlspecialchars(daddslashes($queryArr['name'])),
+            'money' => daddslashes($queryArr['money']),
+            'clientip' => $clientip,
+            'method' => null,
+            'sub_openid' => null,
+            'sub_appid' => null,
+            'auth_code' => null,
+        ], false);
+        $type = $params['type'];
+        $out_trade_no = $params['out_trade_no'];
+        $notify_url = $params['notify_url'];
+        $return_url = $params['return_url'];
+        $name = $params['name'];
+        $money = $params['money'];
+        $domain = $params['domain'];
         $sitename=urlencode(base64_encode(htmlspecialchars($queryArr['sitename'])));
         $param=isset($queryArr['param'])?htmlspecialchars(daddslashes($queryArr['param'])):null;
-
-
-        if(empty($out_trade_no))sysmsg('订单号(out_trade_no)不能为空');
-        if(empty($notify_url))sysmsg('通知地址(notify_url)不能为空');
-        if(empty($return_url))sysmsg('回调地址(return_url)不能为空');
-        if(empty($name))sysmsg('商品名称(name)不能为空');
-        if(empty($money))sysmsg('金额(money)不能为空');
-        if($money<=0 || !is_numeric($money) || !preg_match('/^[0-9.]+$/', $money))sysmsg('金额不合法');
-        if($conf['pay_maxmoney']>0 && $money>$conf['pay_maxmoney'])sysmsg('最大支付金额是'.$conf['pay_maxmoney'].'元');
-        if($conf['pay_minmoney']>0 && $money<$conf['pay_minmoney'])sysmsg('最小支付金额是'.$conf['pay_minmoney'].'元');
-        if(!preg_match('/^[a-zA-Z0-9.\_\-|]+$/',$out_trade_no))sysmsg('订单号(out_trade_no)格式不正确');
-
-        $notifyError = null;
-        if(!validateNotifyUrl($notify_url, $notifyError))sysmsg($notifyError);
-
-        $domain=getdomain($notify_url);
-
-        if($conf['cert_force']==1 && $userrow['cert']==0){
-            sysmsg('当前商户未完成实名认证，无法收款');
-        }
-        if($conf['forceqq']==1 && empty($userrow['qq'])){
-            sysmsg('当前商户未填写联系QQ，无法收款');
-        }
-        if($conf['pay_domain_forbid']==1){
-            if(!$DB->getRow("SELECT * FROM pre_domain WHERE uid=:uid AND (domain=:domain OR domain=:domain2) AND status=1 LIMIT 1", [':uid'=>$pid, ':domain'=>get_host($notify_url), ':domain2'=>'*.'.get_main_host($notify_url)])){
-                sysmsg('该域名不可发起支付，原因：域名没过白，请前往支付平台授权支付域名');
-            }
-        }
-
-        if(!empty($conf['blockname'])){
-            $block_name = explode('|',$conf['blockname']);
-            foreach($block_name as $rows){
-                if(!empty($rows) && strpos($name,$rows)!==false){
-                    $DB->exec("INSERT INTO `pre_risk` (`uid`, `url`, `content`, `date`) VALUES (:uid, :domain, :rows, NOW())", [':uid'=>$pid,':domain'=>$domain,':rows'=>$rows]);
-                    sysmsg($conf['blockalert']?$conf['blockalert']:'该商品禁止出售');
-                }
-            }
-        }
-
-        $blackip = $DB->find('blacklist', '*', ['type'=>1, 'content'=>$clientip], null, 1);
-        if($blackip)sysmsg('系统异常无法完成付款');
-
-        if($conf['pay_iplimit'] > 0){
-            $ipcount = $DB->getColumn("SELECT count(*) FROM pre_order WHERE `ip`=:ip AND `date`=:date AND status>0", [':ip'=>$clientip, ':date'=>date('Y-m-d')]);
-            if($ipcount >= $conf['pay_iplimit']){
-                sysmsg('你今天已无法再发起支付，请明天再试');
-            }
-        }
 
         if(checkPayVerifyOpen($pid)){
             $defend_key = getDefendKey($pid, $out_trade_no);
@@ -99,8 +141,6 @@ class Pay
                 showPayVerifyPage($defend_key, $queryArr);
             }
         }
-
-        if(strlen($name)>127)$name=mb_strcut($name, 0, 127, 'utf-8');
 
         $firstGetChannel = true;
         $oldorder = $DB->getRow("SELECT * FROM `pre_order` WHERE `uid`=:uid AND `out_trade_no`=:out_trade_no", [':uid'=>$pid, ':out_trade_no'=>$out_trade_no]);
@@ -214,21 +254,7 @@ class Pay
             echojsonmsg('未传入任何参数', -4);
         }
 
-        $pid=intval($queryArr['pid']);
-        if(empty($pid))echojsonmsg('商户ID不能为空');
-        $userrow=$DB->getRow("SELECT `uid`,`gid`,`key`,`money`,`mode`,`pay`,`cert`,`status`,`channelinfo`,`qq`,`ordername`,`keytype`,`publickey` FROM `pre_user` WHERE `uid`=:uid LIMIT 1", [':uid'=>$pid]);
-        if(!$userrow)echojsonmsg('商户不存在！');
-        
-        try{
-            \lib\ApiHelper::api_verify($userrow, $queryArr);
-        }catch(Exception $e){
-            echojsonmsg($e->getMessage(), -3);
-        }
-
-        if($userrow['status']==0 || $userrow['pay']==0)echojsonmsg('商户已被封禁，无法支付！');
-
-        if($userrow['pay']==2 && $conf['user_review']==1)echojsonmsg('商户未通过审核，无法支付！');
-
+        list($pid, $userrow) = self::loadMerchant($queryArr, true);
         $type=daddslashes($queryArr['type']);
         $out_trade_no=daddslashes($queryArr['out_trade_no']);
         $notify_url=htmlspecialchars(daddslashes($queryArr['notify_url']));
@@ -251,65 +277,31 @@ class Pay
             $device='mobile';
         }
 
-        if(empty($out_trade_no))echojsonmsg('订单号(out_trade_no)不能为空');
-        if(empty($notify_url))echojsonmsg('通知地址(notify_url)不能为空');
-        if(empty($name))echojsonmsg('商品名称(name)不能为空');
-        if(empty($money))echojsonmsg('金额(money)不能为空');
-        if(empty($type) && $method != 'scan')echojsonmsg('支付方式(type)不能为空');
-        if(empty($clientip))echojsonmsg('用户IP地址(clientip)不能为空');
-        if($money<=0 || !is_numeric($money) || !preg_match('/^[0-9.]+$/', $money))echojsonmsg('金额不合法');
-        if($conf['pay_maxmoney']>0 && $money>$conf['pay_maxmoney'])echojsonmsg('最大支付金额是'.$conf['pay_maxmoney'].'元');
-        if($conf['pay_minmoney']>0 && $money<$conf['pay_minmoney'])echojsonmsg('最小支付金额是'.$conf['pay_minmoney'].'元');
-        if(!preg_match('/^[a-zA-Z0-9.\_\-|]+$/',$out_trade_no))echojsonmsg('订单号(out_trade_no)格式不正确');
-        $notifyError = null;
-        if(!validateNotifyUrl($notify_url, $notifyError))echojsonmsg($notifyError);
-        if($method == 'jsapi' && empty($sub_openid))echojsonmsg('jsapi支付时参数(sub_openid)不能为空');
-        if($method == 'jsapi' && $type=='wxpay' && empty($sub_appid))echojsonmsg('jsapi支付时参数(sub_appid)不能为空');
-        if($method == 'scan' && empty($auth_code))echojsonmsg('付款码支付时授权码(auth_code)不能为空');
-        if($method == 'scan' && empty($type)){
-            $type = getScanPayType($auth_code);
-            if($type == 'unknown') echojsonmsg('未知的付款码类型');
-        }
-
-        $domain=getdomain($notify_url);
-
-        if($conf['cert_force']==1 && $userrow['cert']==0){
-            echojsonmsg('当前商户未完成实名认证，无法收款');
-        }
-        if($conf['forceqq']==1 && empty($userrow['qq'])){
-            echojsonmsg('当前商户未填写联系QQ，无法收款');
-        }
-        if($conf['pay_domain_forbid']==1){
-            if(!$DB->getRow("SELECT * FROM pre_domain WHERE uid=:uid AND (domain=:domain OR domain=:domain2) AND status=1 LIMIT 1", [':uid'=>$pid, ':domain'=>get_host($notify_url), ':domain2'=>'*.'.get_main_host($notify_url)])){
-                echojsonmsg('该域名不可发起支付，原因：域名没过白，请前往支付平台授权支付域名');
-            }
-        }
-
-        if(!empty($conf['blockname'])){
-            $block_name = explode('|',$conf['blockname']);
-            foreach($block_name as $rows){
-                if(!empty($rows) && strpos($name,$rows)!==false){
-                    $DB->exec("INSERT INTO `pre_risk` (`uid`, `url`, `content`, `date`) VALUES (:uid, :domain, :rows, NOW())", [':uid'=>$pid,':domain'=>$domain,':rows'=>$rows]);
-                    echojsonmsg($conf['blockalert']?$conf['blockalert']:'该商品禁止出售');
-                }
-            }
-        }
-
-        $blackip = $DB->find('blacklist', '*', ['type'=>1, 'content'=>$clientip], null, 1);
-        if($blackip)echojsonmsg('系统异常无法完成付款');
-
-        if($conf['pay_iplimit'] > 0){
-            $ipcount = $DB->getColumn("SELECT count(*) FROM pre_order WHERE `ip`=:ip AND `date`=:date AND status>0", [':ip'=>$clientip, ':date'=>date('Y-m-d')]);
-            if($ipcount >= $conf['pay_iplimit']){
-                echojsonmsg('你今天已无法再发起支付，请明天再试');
-            }
-        }
+        $params = self::validateOrderRequest($pid, $userrow, [
+            'type' => $type,
+            'out_trade_no' => $out_trade_no,
+            'notify_url' => $notify_url,
+            'return_url' => $return_url,
+            'name' => $name,
+            'money' => $money,
+            'clientip' => $clientip,
+            'method' => $method,
+            'sub_openid' => $sub_openid,
+            'sub_appid' => $sub_appid,
+            'auth_code' => $auth_code,
+        ], true);
+        $type = $params['type'];
+        $out_trade_no = $params['out_trade_no'];
+        $notify_url = $params['notify_url'];
+        $return_url = $params['return_url'];
+        $name = $params['name'];
+        $money = $params['money'];
+        $clientip = $params['clientip'];
+        $domain = $params['domain'];
 
         if(checkPayVerifyOpen($pid)){
             echojsonmsg('本次支付需要安全验证，请使用跳转支付接口发起支付');
         }
-
-        if(strlen($name)>127)$name=mb_strcut($name, 0, 127, 'utf-8');
 
         $firstGetChannel = true;
         $oldorder = $DB->getRow("SELECT * FROM `pre_order` WHERE `uid`=:uid AND `out_trade_no`=:out_trade_no", [':uid'=>$pid, ':out_trade_no'=>$out_trade_no]);
@@ -424,7 +416,7 @@ class Pay
         global $conf, $DB, $queryArr;
 
         $pid=intval($queryArr['pid']);
-        
+
         if(!empty($queryArr['trade_no'])){
             $trade_no=trim($queryArr['trade_no']);
             if(!preg_match('/^[a-zA-Z0-9_-]{6,64}$/', $trade_no)){
@@ -456,7 +448,7 @@ class Pay
 
         $money = trim($queryArr['money']);
 	    if(!is_numeric($money) || !preg_match('/^[0-9.]+$/', $money))throw new Exception('金额输入错误');
-        
+
         if(!empty($queryArr['trade_no'])){
 				$trade_no=trim($queryArr['trade_no']);
 				if(!preg_match('/^[a-zA-Z0-9_-]{6,64}$/', $trade_no)){
@@ -481,7 +473,7 @@ class Pay
                 $refund_no = $refund_order['refund_no'];
             }
         }
-        
+
         $result = \lib\Order::refund($refund_no, $trade_no, $money, 1, $pid, $out_refund_no);
         if($result['code'] == 0){
             $result['msg'] = '退款成功！退款金额￥'.$result['money'];

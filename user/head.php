@@ -33,15 +33,10 @@ $conf = array_merge($conf, $groupconfig);
   <link rel="stylesheet" href="../assets/css/bootstrap-table.css?v=1"/>
   <script>
     window.CSRF_TOKEN = <?php echo json_encode(getCsrfToken()); ?>;
-    var _csrfSetupTry = 0;
-    (function applyCsrfAjaxSetup() {
-      if (window.jQuery && window.CSRF_TOKEN) {
-        window.jQuery.ajaxSetup({headers: {'X-CSRF-Token': window.CSRF_TOKEN}});
-      } else if (_csrfSetupTry < 50) {
-        _csrfSetupTry++;
-        setTimeout(applyCsrfAjaxSetup, 100);
-      }
-    })();
+  </script>
+  <script src="../assets/js/common-auth.js"></script>
+  <script>
+    window.applyCsrfAjaxSetup(50);
   </script>
 </head>
 <body>
@@ -312,16 +307,7 @@ $conf = array_merge($conf, $groupconfig);
   <!-- / aside -->
   <script>
   function submitLogout(){
-    var form = document.createElement('form');
-    form.method = 'POST';
-    form.action = 'login.php?logout=1';
-    var input = document.createElement('input');
-    input.type = 'hidden';
-    input.name = 'csrf_token';
-    input.value = window.CSRF_TOKEN || '';
-    form.appendChild(input);
-    document.body.appendChild(form);
-    form.submit();
+    window.submitLogoutForm('login.php?logout=1');
   }
   </script>
   <!-- content -->

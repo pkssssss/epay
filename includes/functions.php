@@ -1306,3 +1306,33 @@ function is_idcard($idcard){
 	}
 	return $verify[$sum % 11] === $idcard[17];
 }
+
+
+function displayPayTypeLabel($type){
+	$type = intval($type);
+	if($type === 1) return '支付宝';
+	if($type === 2) return '微信';
+	if($type === 3) return 'QQ钱包';
+	if($type === 4) return '银行卡';
+	return (string)$type;
+}
+
+function convertPayTypeCode($type){
+	$type = intval($type);
+	if($type === 1) return 'alipay';
+	if($type === 2) return 'wxpay';
+	if($type === 3) return 'qqpay';
+	if($type === 4) return 'bank';
+	return '';
+}
+
+function displayDomainStatusHtml($status){
+	$status = intval($status);
+	if($status === 1) return '<font color="green">正常</font>';
+	if($status === 2) return '<font color="red">拒绝</font>';
+	return '<font color="blue">审核中</font>';
+}
+
+function displayWeixinTypeLabel($type){
+	return intval($type) === 1 ? '微信小程序' : '微信公众号';
+}

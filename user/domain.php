@@ -6,16 +6,6 @@ include './head.php';
 ?>
 <?php
 
-function display_status($status){
-	if($status == 1){
-		return '<font color="green">正常</font>';
-	}elseif($status == 2){
-		return '<font color="red">拒绝</font>';
-	}else{
-		return '<font color="blue">审核中</font>';
-	}
-}
-
 $numrows=$DB->getColumn("SELECT count(*) from pre_domain WHERE uid=:uid", [':uid'=>$uid]);
 
 $list=$DB->getAll("SELECT * FROM pre_domain WHERE uid=:uid order by id desc", [':uid'=>$uid]);
@@ -44,7 +34,7 @@ $list=$DB->getAll("SELECT * FROM pre_domain WHERE uid=:uid order by id desc", ['
           <tbody>
 <?php
 foreach($list as $res){
-	echo '<tr><td>'.$res['domain'].'</td><td>'.display_status($res['status']).'</td><td>'.$res['addtime'].'</td><td><a href="javascript:delDomain('.$res['id'].')" class="btn btn-xs btn-danger">删除</a></td></tr>';
+	echo '<tr><td>'.$res['domain'].'</td><td>'.displayDomainStatusHtml($res['status']).'</td><td>'.$res['addtime'].'</td><td><a href="javascript:delDomain('.$res['id'].')" class="btn btn-xs btn-danger">删除</a></td></tr>';
 }
 ?>
 		  </tbody>

@@ -1,14 +1,5 @@
 <?php
 @header('Content-Type: text/html; charset=UTF-8');
-
-// 公共静态资源 CDN：0=私有CDN（默认），1=南方科大CDN
-$cdnpublic_custom = 'https://su.pksss.cn/123/cdn/cdnjs/ajax/libs/';
-$cdnpublic_sustech = '//mirrors.sustech.edu.cn/cdnjs/ajax/libs/';
-if(isset($conf['cdnpublic']) && (string)$conf['cdnpublic'] === '1'){
-	$cdnpublic = $cdnpublic_sustech;
-}else{
-	$cdnpublic = $cdnpublic_custom;
-}
 ?>
 <!DOCTYPE html>
 <html lang="zh-cn">
@@ -27,9 +18,10 @@ if(isset($conf['cdnpublic']) && (string)$conf['cdnpublic'] === '1'){
   <script src="<?php echo $cdnpublic?>twitter-bootstrap/3.4.1/js/bootstrap.min.js"></script>
   <script>
     window.CSRF_TOKEN = <?php echo json_encode(getCsrfToken()); ?>;
-    if (window.jQuery && window.CSRF_TOKEN) {
-      $.ajaxSetup({type: 'POST', headers: {'X-CSRF-Token': window.CSRF_TOKEN}});
-    }
+  </script>
+  <script src="../assets/js/common-auth.js"></script>
+  <script>
+    window.applyCsrfAjaxSetup(0);
   </script>
   <!--[if lt IE 9]>
     <script src="<?php echo $cdnpublic?>html5shiv/3.7.3/html5shiv.min.js"></script>
@@ -121,16 +113,7 @@ if(isset($conf['cdnpublic']) && (string)$conf['cdnpublic'] === '1'){
   </nav><!-- /.navbar -->
   <script>
   function submitLogout(){
-    var form = document.createElement('form');
-    form.method = 'POST';
-    form.action = './login.php?logout=1';
-    var input = document.createElement('input');
-    input.type = 'hidden';
-    input.name = 'csrf_token';
-    input.value = window.CSRF_TOKEN || '';
-    form.appendChild(input);
-    document.body.appendChild(form);
-    form.submit();
+    window.submitLogoutForm('./login.php?logout=1');
   }
   </script>
 <?php }?>

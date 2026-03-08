@@ -10,13 +10,6 @@ if($islogin==1){}else exit("<script language='javascript'>window.location.href='
   <div class="container" style="padding-top:70px;">
     <div class="col-md-8 center-block" style="float: none;">
 <?php
-function display_type($type){
-	if($type==1)
-		return '微信小程序';
-	else
-		return '微信公众号';
-}
-
 $list = $DB->getAll("SELECT * FROM pre_weixin ORDER BY id ASC");
 ?>
 <div class="modal" id="modal-store" role="dialog" aria-labelledby="myModalLabel" aria-hidden="true" data-backdrop="static">
@@ -85,7 +78,7 @@ $list = $DB->getAll("SELECT * FROM pre_weixin ORDER BY id ASC");
 <?php
 foreach($list as $res)
 {
-echo '<tr><td><b>'.$res['id'].'</b></td><td>'.display_type($res['type']).'</td><td>'.$res['name'].'</td><td>'.$res['appid'].'</td><td><a class="btn btn-xs btn-info" onclick="editframe('.$res['id'].')">编辑</a>&nbsp;<a class="btn btn-xs btn-danger" onclick="delItem('.$res['id'].')">删除</a>&nbsp;<a onclick="testweixin('.$res['id'].')" class="btn btn-xs btn-default">测试</a></td></tr>';
+echo '<tr><td><b>'.$res['id'].'</b></td><td>'.displayWeixinTypeLabel($res['type']).'</td><td>'.$res['name'].'</td><td>'.$res['appid'].'</td><td><a class="btn btn-xs btn-info" onclick="editframe('.$res['id'].')">编辑</a>&nbsp;<a class="btn btn-xs btn-danger" onclick="delItem('.$res['id'].')">删除</a>&nbsp;<a onclick="testweixin('.$res['id'].')" class="btn btn-xs btn-default">测试</a></td></tr>';
 }
 ?>
           </tbody>

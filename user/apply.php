@@ -6,32 +6,6 @@ include './head.php';
 ?>
 <?php
 
-function display_type($type){
-	if($type==1)
-		return '支付宝';
-	elseif($type==2)
-		return '微信';
-	elseif($type==3)
-		return 'QQ钱包';
-	elseif($type==4)
-		return '银行卡';
-	else
-		return 1;
-}
-
-function convert_type($type){
-	if($type==1)
-		return 'alipay';
-	elseif($type==2)
-		return 'wxpay';
-	elseif($type==3)
-		return 'qqpay';
-	elseif($type==4)
-		return 'bank';
-	else
-		return null;
-}
-
 if($conf['settle_open']==0||$conf['settle_open']==1)exit('未开启手动申请提现');
 
 	if($conf['settle_type']==1){
@@ -82,7 +56,7 @@ if(isset($_GET['act']) && $_GET['act']=='do'){
 			if($conf['settle_transfer']==1 && $conf['settle_transfermax']>0 && $money>$conf['settle_transfermax']) $conf['settle_transfer']=0;
 			if($conf['settle_transfer']==1){
 				$out_biz_no = date("YmdHis").rand(11111,99999);
-				$app = convert_type($userrow['settle_id']);
+				$app = convertPayTypeCode($userrow['settle_id']);
 				$channel = \lib\Channel::get($conf['transfer_'.$app]);
 				$result = \lib\Transfer::submit($app, $channel, $out_biz_no, $userrow['account'], $userrow['username'], $realmoney);
 				if($result['code']==0){
@@ -91,11 +65,11 @@ if(isset($_GET['act']) && $_GET['act']=='do'){
 				}else{
 					$message='转账失败 '.$result['msg'];
 					$DB->update('settle', ['status'=>3, 'result'=>$result["msg"], 'transfer_status'=>2, 'transfer_result'=>$message], ['id'=>$settleid]);
-					\lib\MsgNotice::send('apply', 0, ['uid'=>$uid, 'money'=>$money, 'realmoney'=>$realmoney, 'type'=>display_type($userrow['settle_id']), 'account'=>$userrow['account'], 'username'=>$userrow['username']]);
+					\lib\MsgNotice::send('apply', 0, ['uid'=>$uid, 'money'=>$money, 'realmoney'=>$realmoney, 'type'=>displayPayTypeLabel($userrow['settle_id']), 'account'=>$userrow['account'], 'username'=>$userrow['username']]);
 					exit("<script language='javascript'>alert('申请提现成功，但转账失败，请联系客服处理！');window.location.href='./settle.php';</script>");
 				}
 			}else{
-				\lib\MsgNotice::send('apply', 0, ['uid'=>$uid, 'money'=>$money, 'realmoney'=>$realmoney, 'type'=>display_type($userrow['settle_id']), 'account'=>$userrow['account'], 'username'=>$userrow['username']]);
+				\lib\MsgNotice::send('apply', 0, ['uid'=>$uid, 'money'=>$money, 'realmoney'=>$realmoney, 'type'=>displayPayTypeLabel($userrow['settle_id']), 'account'=>$userrow['account'], 'username'=>$userrow['username']]);
 			}
 		}
 		exit("<script language='javascript'>alert('申请提现成功！');window.location.href='./settle.php';</script>");
@@ -126,7 +100,7 @@ if(isset($_GET['act']) && $_GET['act']=='do'){
 				<div class="form-group">
 					<label class="col-sm-2 control-label">提现方式</label>
 					<div class="col-sm-9">
-						<div class="input-group"><input class="form-control" type="text" value="<?php echo display_type($userrow['settle_id'])?>" disabled><a href="./editinfo.php" class="input-group-addon">修改收款账号</a></div>
+						<div class="input-group"><input class="form-control" type="text" value="<?php echo displayPayTypeLabel($userrow['settle_id'])?>" disabled><a href="./editinfo.php" class="input-group-addon">修改收款账号</a></div>
 					</div>
 				</div>
 				<div class="form-group">
