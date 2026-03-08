@@ -105,7 +105,7 @@ class Pay
         }else{
             exit('你还未配置支付接口商户！');
         }
-
+        
         if(isset($queryArr['__defend'])){
             $defend_result = $queryArr['__defend'];
             unset($queryArr['__defend']);
@@ -416,7 +416,7 @@ class Pay
         global $conf, $DB, $queryArr;
 
         $pid=intval($queryArr['pid']);
-
+        
         if(!empty($queryArr['trade_no'])){
             $trade_no=trim($queryArr['trade_no']);
             if(!preg_match('/^[a-zA-Z0-9_-]{6,64}$/', $trade_no)){
@@ -448,7 +448,7 @@ class Pay
 
         $money = trim($queryArr['money']);
 	    if(!is_numeric($money) || !preg_match('/^[0-9.]+$/', $money))throw new Exception('金额输入错误');
-
+        
         if(!empty($queryArr['trade_no'])){
 				$trade_no=trim($queryArr['trade_no']);
 				if(!preg_match('/^[a-zA-Z0-9_-]{6,64}$/', $trade_no)){
@@ -473,7 +473,7 @@ class Pay
                 $refund_no = $refund_order['refund_no'];
             }
         }
-
+        
         $result = \lib\Order::refund($refund_no, $trade_no, $money, 1, $pid, $out_refund_no);
         if($result['code'] == 0){
             $result['msg'] = '退款成功！退款金额￥'.$result['money'];
